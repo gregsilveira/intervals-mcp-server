@@ -100,3 +100,33 @@ def test_make_intervals_request_bad_json(monkeypatch, caplog):
 
     assert result["error"] is True
     assert "Invalid JSON in response" in result["message"]
+
+
+# ---------------------------------------------------------------------------
+# v1.4.0 — error-body detail extraction (Strava restriction surfaced, not discarded)
+# ---------------------------------------------------------------------------
+
+
+def test_get_error_message_surfaces_strava_422_detail():
+    """A 422 with intervals.icu's Strava-restriction body must surface the
+    real reason, not the generic canned 'couldn't process the request'.
+    Previously the canned message discarded the body detail entirely."""
+    body = '{"status":422,"error":"Cannot read Strava activities via the API"}'
+    msg = api_client._get_error_message(422, body)  # pylint: disable=protected-access
+    assert "Cannot read Strava activities via the API" in msg
+
+
+def test_get_error_message_plain_text_body_unchanged():
+    """A non-JSON body falls back to the canned status message (no crash)."""
+    msg = api_client._get_error_message(404, "not found")  # pylint: disable=protected-access
+    assert "Not Found" in msg
+
+
+def test_extract_api_detail_handles_non_json():
+    """_extract_api_detail returns None for non-JSON / empty bodies."""
+    assert api_client._extract_api_detail("") is None  # pylint: disable=protected-access
+    assert api_client._extract_api_detail("plain text") is None  # pylint: disable=protected-access
+    assert (
+        api_client._extract_api_detail('{"error":"boom"}')  # pylint: disable=protected-access
+        == "boom"
+    )

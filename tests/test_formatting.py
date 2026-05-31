@@ -375,14 +375,22 @@ def test_has_substantive_activity_data_false_on_v1_3_0_empty_stub():
 
 def test_format_activity_summary_draft_with_data_renders_full_plus_advisory():
     """v1.3.3: when the API returns substantive data on a draft (the case
-    the brief documents — Zwift-via-Strava upload reaches intervals.icu
+    a genuinely pre-normalization NON-Strava upload reaches intervals.icu
     with stream_types and average_watts intact), render the full body and
-    prepend an advisory header. The data must NOT be withheld."""
+    prepend an advisory header. The data must NOT be withheld.
+
+    NOTE (v1.4.0): the original v1.3.3 fixture used source=STRAVA, but the
+    live API never returns substantive data for Strava-sourced activities —
+    it returns a 5-key stub (confirmed 2026-05-31). Strava is now routed to
+    its own restricted message (tested separately). This test covers the
+    real remaining case: a non-Strava draft (e.g. a freshly-uploaded Garmin
+    activity not yet assigned its `i`-prefixed id) that carries partial
+    data."""
     activity = {
         "id": 18303442074,  # raw upstream id → draft signal
         "name": "Zwift Stock 20-min FTP",
         "type": "VirtualRide",
-        "source": "STRAVA",
+        "source": "GARMIN",  # non-Strava → advisory path, not restricted path
         "stream_types": ["watts", "heartrate", "cadence"],
         "duration": 1200,
         "distance": 12500,
@@ -392,17 +400,70 @@ def test_format_activity_summary_draft_with_data_renders_full_plus_advisory():
     out = format_activity_summary(activity)
     # Advisory header is present and identifies the source.
     assert "advisory:" in out
-    assert "STRAVA" in out
+    assert "GARMIN" in out
     assert "watts" in out
     # And the full body is rendered — power data is not withheld.
     assert "Power Data:" in out
     assert "247" in out  # avg power preserved
 
 
+# ---------------------------------------------------------------------------
+# v1.4.0 — Strava-source restriction (the real root cause)
+# ---------------------------------------------------------------------------
+
+
+from intervals_mcp_server.utils.formatting import _is_strava_restricted  # noqa: E402
+
+
+def test_is_strava_restricted_on_source_field():
+    """source==STRAVA is the primary signal."""
+    assert _is_strava_restricted({"id": "18728161934", "source": "STRAVA"}) is True
+
+
+def test_is_strava_restricted_on_note_field():
+    """The _note string is the secondary signal (belt and suspenders)."""
+    assert (
+        _is_strava_restricted(
+            {"id": "x", "_note": "STRAVA activities are not available via the API"}
+        )
+        is True
+    )
+
+
+def test_is_strava_restricted_false_for_normal_activity():
+    """Non-Strava sources must not trip the restriction path."""
+    assert _is_strava_restricted({"id": "i152673908", "source": "WAHOO"}) is False
+
+
+def test_format_activity_summary_strava_restricted_real_stub():
+    """The exact 5-key stub shape the live API returns for a Strava-sourced
+    activity (confirmed 2026-05-31) must render a compact honest message:
+    no Power-Data wall, a [strava-restricted] marker, the real cause, and
+    the non-Strava remediation. Not a pre-normalization message — Strava
+    restriction is permanent."""
+    stub = {
+        "id": "18728161934",
+        "icu_athlete_id": "i141174",
+        "start_date_local": "2026-05-31T12:40:44",
+        "source": "STRAVA",
+        "_note": "STRAVA activities are not available via the API",
+    }
+    out = format_activity_summary(stub)
+    assert "[strava-restricted]" in out
+    assert "Power Data:" not in out  # no N/A wall
+    assert "Garmin" in out  # non-Strava remediation surfaced
+    assert "non-Strava" in out
+    # Must NOT use the pre-normalization wording — different cause.
+    assert "hasn't completed normalization" not in out
+    assert "link_activity_to_event" not in out
+    # Compact, not a wall.
+    assert len(out.splitlines()) <= 5
+
+
 def test_format_activity_summary_draft_empty_keeps_remediation():
-    """v1.3.3 guard: the empty-stub path (no substantive data) must still
-    return the v1.3.0 remediation message, NOT a 60-line N/A wall with an
-    advisory header tacked on top."""
+    """v1.3.3 guard: the empty-stub path (no substantive data, NON-Strava)
+    must still return the v1.3.0 remediation message, NOT a 60-line N/A
+    wall with an advisory header tacked on top."""
     stub = {"id": 18303442074, "name": None, "type": None}
     out = format_activity_summary(stub)
     assert "Power Data:" not in out

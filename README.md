@@ -1,23 +1,23 @@
 # Intervals.icu MCP Server (jancrab fork)
 
-Model Context Protocol (MCP) server for the [intervals.icu](https://intervals.icu) training-platform API. Personal-use scope. Forked from [`mvilanova/intervals-mcp-server`](https://github.com/mvilanova/intervals-mcp-server) (which provides the architectural base + 17 core tools); this fork extends to **134 tools across 17 domains**, covering effectively every read/write the authenticated athlete can perform.
+Model Context Protocol (MCP) server for the [intervals.icu](https://intervals.icu) training-platform API. Personal-use scope. Forked from [`mvilanova/intervals-mcp-server`](https://github.com/mvilanova/intervals-mcp-server) (which provides the architectural base + 17 core tools); this fork extends to **135 tools across 17 domains**, covering effectively every read/write the authenticated athlete can perform.
 
 > If you're looking at the upstream's 17 tools and need full coverage of activity analytics, sport settings, gear, routes, weather, athlete updates, workout templates, wellness writes, event bulk ops, and file uploads/downloads — that's what this fork adds. See [`CHANGELOG.md`](./CHANGELOG.md) for the wave-by-wave breakdown.
 
 ## Two profiles: `lean` (default) vs `full`
 
-MCP tool catalogs cost context tokens on every turn — the full 134-tool surface is ~44k tokens of schema, which dominates short Claude Desktop sessions. The server therefore ships two profiles, switchable via the `INTERVALS_PROFILE` env var:
+MCP tool catalogs cost context tokens on every turn — the full 135-tool surface is ~44k tokens of schema, which dominates short Claude Desktop sessions. The server therefore ships two profiles, switchable via the `INTERVALS_PROFILE` env var:
 
 | Profile | Tools | Schema tokens (measured) | Use when |
 |---|---|---|---|
-| **`lean`** (default) | 30 | ~11,561 | You want a working AI training partner without paying 25% of your context window. Covers the four core workflows (daily readiness, weekly planning, post-workout debrief, strength logging), manual activity creation, Zwift workout export, the `get_activity_full_report` aggregator, plus full cycling-coaching coverage (CP/W'/MMP via `get_athlete_mmp_model`, interval-fade via `get_activity_interval_stats`). |
-| **`full`** | 134 | ~43,863 | You want SDK-style coverage of every endpoint — bulk imports, gear management, custom dashboard items, weather config, OAuth disconnect, etc. |
+| **`lean`** (default) | 40 | ~13,900 | You want a working AI training partner without paying a big chunk of your context window. Covers the four core workflows (daily readiness, weekly planning, post-workout debrief, strength logging), manual activity creation, Zwift workout export, full cycling-coaching coverage (CP/W'/MMP, interval-fade, decoupling, segments, season power/HR curves), gear, weather, and per-discipline sport settings. (v1.4.0 expanded lean from 31 → 40 and moved the heavy `get_activity_full_report` aggregator to full-only.) |
+| **`full`** | 135 | ~43,863 | You want SDK-style coverage of every endpoint — bulk imports, gear management, custom dashboard items, weather config, OAuth disconnect, etc. |
 
 **Saving from running lean: ~32,300 tokens (~74%) on every turn.**
 
 Set `INTERVALS_PROFILE=full` in your `.env`, your `.mcp.json`'s `env` block, or the MCPB user-config UI to switch. Anything other than the literal string `full` (case-insensitive) is treated as `lean`, so a typo can't accidentally expose 4-5× the surface area. The server logs the active profile + tool count at startup.
 
-Lean tool list (30): `get_athlete_profile`, `get_athlete_basic_profile`, `get_ftp_history`, **`get_athlete_mmp_model`** (CP / W' / pMax / FTP from MMP curve), `get_wellness_data`, `get_wellness_record`, `update_wellness_record_today`, `get_fitness_curve`, `get_activities`, `get_activity_details` (already exposes TSS / IF / NP / VI / EF / kJ / decoupling / polarization / CTL / ATL as scalar fields), `get_activity_streams`, `get_activity_intervals`, `get_activity_messages`, `add_activity_message`, `search_for_activities`, `list_activities_around`, `create_manual_activity`, `get_activity_power_curve`, `get_activity_hr_curve`, `find_best_efforts`, **`get_activity_interval_stats`** (interval-fade analysis), **`get_activity_full_report`** (8-endpoint parallel aggregator), `get_events`, `get_event_by_id`, `add_or_update_event`, `delete_event`, `mark_event_as_done`, `list_workouts`, `get_workout`, **`download_workout`**. The full set is everything in the inventory table below.
+Lean tool list (40): `get_athlete_profile`, `get_athlete_basic_profile`, `get_athlete_summary`, `get_ftp_history`, **`get_athlete_mmp_model`** (CP / W' / pMax / FTP from MMP curve), `list_athlete_power_curves`, `list_athlete_hr_curves`, `list_sport_settings`, `get_wellness_data`, `get_wellness_record`, `update_wellness_record_today`, `get_fitness_curve`, `get_activities`, `get_activity_details` (already exposes TSS / IF / NP / VI / EF / kJ / decoupling / polarization / CTL / ATL as scalar fields), `get_activity_streams`, `get_activity_intervals`, `get_activity_interval_stats`, `get_activity_power_curve`, `get_activity_hr_curve`, `get_activity_power_vs_hr`, `get_activity_hr_load_model`, `get_activity_segments`, `get_activity_map`, `find_best_efforts`, `get_activity_messages`, `add_activity_message`, `search_for_activities`, `list_activities_around`, `create_manual_activity`, `get_events`, `get_event_by_id`, `add_or_update_event`, `delete_event`, `mark_event_as_done`, `link_activity_to_event`, `list_workouts`, `get_workout`, `download_workout`, `list_gear`, `get_weather_forecast`. The full set is everything in the inventory table below. (`get_activity_full_report` is full-only — it internally pulls several of the per-activity tools above and is the single heaviest tool.)
 
 ### Fat aggregator: `get_activity_full_report`
 
@@ -45,12 +45,12 @@ The fork ships an [MCPB extension manifest](./manifest.json) (`manifest_version:
 
 **Prerequisite: `uv` on PATH.** The bundle launches the server via `uv`, so install it first (see Troubleshooting below if Claude Desktop reports it can't find `uv`).
 
-1. **Download** `intervals-icu-jan-1.3.3.mcpb` from the [latest release](https://github.com/jancrab/intervals-mcp-server/releases/latest) on GitHub.
+1. **Download** `intervals-icu-jan-1.4.0.mcpb` from the [latest release](https://github.com/jancrab/intervals-mcp-server/releases/latest) on GitHub.
 2. **Double-click** the `.mcpb` file. Claude Desktop opens its install dialog.
 3. **Fill the four user-config fields**:
    - `api_key` — your intervals.icu API key (marked sensitive in the UI).
    - `athlete_id` — e.g. `i12345`.
-   - `profile` — free-text. Type `lean` (default, 30 tools) or `full` (134 tools). Anything else is treated as `lean`.
+   - `profile` — free-text. Type `lean` (default, 40 tools) or `full` (135 tools). Anything else is treated as `lean`.
    - `log_level` — `INFO`, `DEBUG`, etc.
 4. Click **Install**, then **restart Claude Desktop**.
 
@@ -60,9 +60,9 @@ The fork ships an [MCPB extension manifest](./manifest.json) (`manifest_version:
 Show me my last activity.
 ```
 
-Expected: the lean profile is active (30 tools), and `mcp__intervals-icu-jan__get_activities` fires. If you switched to `full` you'll see 134 tools available.
+Expected: the lean profile is active (40 tools), and `mcp__intervals-icu-jan__get_activities` fires. If you switched to `full` you will see 135 tools available.
 
-**Switching profile post-install.** Settings → Extensions → `intervals-icu-jan` → **Tool profile** → type EXACTLY `full` (or `lean`) → save → restart Desktop. Tool count jumps 30 → 134 (or back).
+**Switching profile post-install.** Settings → Extensions → `intervals-icu-jan` → **Tool profile** → type EXACTLY `full` (or `lean`) → save → restart Desktop. Tool count jumps 40 → 135 (or back).
 
 > **Credential storage note.** The user-config UI marks `api_key` as sensitive, but the underlying storage backend per OS is not documented in the v0.3 spec. Treat the key as semi-public and rotate it periodically at intervals.icu → Settings → Developer Settings.
 
@@ -74,7 +74,8 @@ Expected: the lean profile is active (30 tools), and `mcp__intervals-icu-jan__ge
 
   Restart Desktop after install so it picks up the new PATH.
 - **API key rejected (HTTP 401).** Regenerate the key at intervals.icu → Settings → Developer Settings, then update the value in Settings → Extensions → `intervals-icu-jan` and restart Desktop.
-- **Tool count is 134 when you expected 30.** `INTERVALS_PROFILE` is set to `full` in extension settings. Open Settings → Extensions → `intervals-icu-jan` → **Tool profile** → type `lean` → save → restart Desktop.
+- **Tool count is 135 when you expected 40.** `INTERVALS_PROFILE` is set to `full` in extension settings. Open Settings → Extensions → `intervals-icu-jan` → **Tool profile** → type `lean` → save → restart Desktop.
+- **Activity returns `[strava-restricted]`.** The activity's `source` is `STRAVA`, and intervals.icu does not serve Strava-sourced activity data through its API (a Strava API-licensing restriction — intervals.icu returns a 5-key stub with `_note: "STRAVA activities are not available via the API"`). This is **permanent**, not a pre-normalization state — renaming or reprocessing will not help. To analyze the ride in this tool, get it into intervals.icu via a **non-Strava** route: `Zwift -> Garmin Connect -> intervals.icu`, or a direct `.fit` upload. Non-Strava sources (Garmin, Wahoo, direct upload) are fully API-readable. The same applies to derived endpoints (`get_activity_streams`, `get_activity_power_curve`, etc.) — they now surface the underlying "Cannot read Strava activities via the API" message rather than a raw 422. (Diagnosed + handled in v1.4.0.)
 - **Activity returns "pre-normalization on intervals.icu" message.** intervals.icu's ingest pipeline hasn't completed for that upload yet AND the API returned an empty stub (no `name`, `type`, `duration`, power, or `stream_types`). Common with fresh Zwift rides, especially when a planned event for the same day exists but the activity hasn't been linked to it. Open the activity URL printed in the message, give it a name, and save. That forces normalization, after which the tool returns full data. (Detection added in v1.3.0; older builds render 60 lines of `N/A` instead.)
 - **Activity returns an `advisory: ...` header followed by the full data block.** v1.3.3 path: a draft signal was detected (raw upstream `id`, missing some metadata) BUT the API also returned substantive fields (`stream_types`, `duration`, `icu_average_watts`, etc.). The data is not withheld — the advisory just tells you the lineage (`source=...`), whether interval analysis ran, which streams are available, and the web URL for the manual remediation if you want to force full normalization. Typical for Zwift-via-Strava uploads that arrive un-renamed but with stream data intact.
 - **Activity stays in draft after rename** (typical when a Zwift stock workout was run instead of the prescribed `.zwo`). The activity is "orphan" — auto-link to the planned event failed because workout structures don't match, and renaming alone doesn't unstick it. Resolve via `link_activity_to_event(activity_id, event_id)` (find `event_id` via `get_events` for the activity's date). One tool call forces the link and normalization. (Tool added in v1.3.1.)
@@ -111,7 +112,7 @@ setx INTERVALS_ATHLETE_ID "i12345"
 # macOS/Linux:  export INTERVALS_API_KEY=... ; add to ~/.zshrc
 ```
 
-Restart Claude Code. The 30 lean-profile tools become available as `mcp__intervals-icu-jan__*` (or all 134 if you add `"INTERVALS_PROFILE": "full"` to the `env` block above).
+Restart Claude Code. The 40 lean-profile tools become available as `mcp__intervals-icu-jan__*` (or all 135 if you add `"INTERVALS_PROFILE": "full"` to the `env` block above).
 
 For per-tool write confirmations (recommended), add `permissions.ask` rules — the AITrainer repo at `../` ships a complete example covering all 61 write tools (sport-settings writes, wellness writes, event bulk ops, gear writes, athlete updates, etc.).
 
@@ -144,7 +145,7 @@ File location:
 
 ## Tool inventory (134 across 17 domains)
 
-This table lists the **full** profile. The `lean` profile (default) exposes the 30 tools enumerated above.
+This table lists the **full** profile. The `lean` profile (default) exposes the 40 tools enumerated above.
 
 | Domain | Read tools | Write tools |
 |---|---|---|
@@ -166,7 +167,7 @@ This table lists the **full** profile. The `lean` profile (default) exposes the 
 | **File ops** (multipart + binary) | `download_activity_file`, `download_activity_fit_file`, `download_activity_gpx_file`, `download_workout`, `download_workout_for_athlete` | `upload_activity`, `upload_activity_streams_csv`, `import_workout_file`, `download_activity_fit_files` (POST-with-body bundle download) |
 | **Aggregators** (cross-domain fat-tools) | `get_activity_full_report` (8 parallel subcalls → one consolidated markdown report) | — |
 
-Total: **134 tools** in `full`, **30** in `lean`. Run `INTERVALS_PROFILE=full uv run python -c "from intervals_mcp_server.server import mcp; import asyncio; print(len(asyncio.run(mcp.list_tools())))"` to get the live count.
+Total: **135 tools** in `full`, **40** in `lean`. Run `INTERVALS_PROFILE=full uv run python -c "from intervals_mcp_server.server import mcp; import asyncio; print(len(asyncio.run(mcp.list_tools())))"` to get the live count.
 
 ### Zwift / ERG / MRC workout export
 

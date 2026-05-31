@@ -81,8 +81,36 @@ async def setup_api_client(_app: FastMCP):
             pass
 
 
+def _extract_api_detail(error_text: str) -> str | None:
+    """Pull the human-readable detail out of an intervals.icu error body.
+
+    intervals.icu returns JSON error bodies like
+    `{"status":422,"error":"Cannot read Strava activities via the API"}`.
+    The canned status messages below would otherwise discard that detail —
+    which is exactly the information the caller needs (e.g. the Strava-source
+    restriction is reported only in this `error` field). Returns the detail
+    string if found, else None.
+    """
+    if not error_text:
+        return None
+    try:
+        body = json.loads(error_text)
+    except (ValueError, TypeError):
+        return None
+    if isinstance(body, dict):
+        detail = body.get("error") or body.get("message")
+        if isinstance(detail, str) and detail.strip():
+            return detail.strip()
+    return None
+
+
 def _get_error_message(error_code: int, error_text: str) -> str:
-    """Return a user-friendly error message for a given HTTP status code."""
+    """Return a user-friendly error message for a given HTTP status code.
+
+    When the API body carries a specific detail (e.g. the Strava-source
+    restriction reported on a 422), that detail is appended so the real
+    reason is never discarded behind a generic canned message.
+    """
     error_messages = {
         HTTPStatus.UNAUTHORIZED: f"{HTTPStatus.UNAUTHORIZED.value} {HTTPStatus.UNAUTHORIZED.phrase}: Please check your API key.",
         HTTPStatus.FORBIDDEN: f"{HTTPStatus.FORBIDDEN.value} {HTTPStatus.FORBIDDEN.phrase}: You may not have permission to access this resource.",
@@ -92,11 +120,16 @@ def _get_error_message(error_code: int, error_text: str) -> str:
         HTTPStatus.INTERNAL_SERVER_ERROR: f"{HTTPStatus.INTERNAL_SERVER_ERROR.value} {HTTPStatus.INTERNAL_SERVER_ERROR.phrase}: The Intervals.icu server encountered an internal error.",
         HTTPStatus.SERVICE_UNAVAILABLE: f"{HTTPStatus.SERVICE_UNAVAILABLE.value} {HTTPStatus.SERVICE_UNAVAILABLE.phrase}: The Intervals.icu server might be down or undergoing maintenance.",
     }
+    detail = _extract_api_detail(error_text)
     try:
         status = HTTPStatus(error_code)
-        return error_messages.get(status, error_text)
+        base = error_messages.get(status, error_text)
     except ValueError:
-        return error_text
+        base = error_text
+    if detail and detail != base:
+        # Append the API's own wording so the specific reason survives.
+        return f"{base} — {detail}" if base else detail
+    return base
 
 
 def _prepare_request_config(

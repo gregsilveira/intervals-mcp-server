@@ -81,10 +81,25 @@ LEAN_TOOLS: frozenset[str] = frozenset(
         # the cycling-research subagent challenge — no other tool produces
         # CP or W' from your data.
         "get_athlete_mmp_model",
-        # --- Aggregators (one tool, many endpoints in parallel) ----------
-        # Trades wall-clock for context — replaces 8 individual calls in
-        # post-workout debrief workflow with one fat fetch.
-        "get_activity_full_report",
+        # --- v1.4.0 lean expansion (live-tested promotions) ---------------
+        # Per-activity deep-analysis + season-level reads that the daily
+        # post-ride / weekly-review flows hit constantly. Each schema is
+        # small; the cost driver is count, not size.
+        "get_activity_power_vs_hr",     # decoupling + 1st/2nd-half ratio (long-Z2 reviews)
+        "get_activity_hr_load_model",   # HRSS / LT / maxHR (HR-load when power missing)
+        "get_activity_segments",        # named segment efforts (climb PRs)
+        "get_activity_map",             # bounds + polyline (route engine / GPX / safety)
+        "get_athlete_summary",          # weekly totals + load model + eFTP in one read
+        "list_athlete_power_curves",    # season power trend
+        "list_athlete_hr_curves",       # season HR curve (decoupling baseline)
+        "list_sport_settings",          # all disciplines' FTP/LTHR/zones in one read
+        "list_gear",                    # bikes + km
+        "get_weather_forecast",         # 14-day forecast (pre-ride + safety briefing)
+        # NOTE: get_activity_full_report (the parallel aggregator) is
+        # intentionally NOT in lean — it internally pulls several of the
+        # tools above, so once they're individually present its marginal
+        # value drops and it's the single heaviest tool (~10k tokens/call).
+        # Escalate to full when you want everything at once.
         # --- Events (planned workouts, races) -----------------------------
         "get_events",
         "get_event_by_id",

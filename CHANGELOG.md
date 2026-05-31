@@ -6,6 +6,45 @@ This fork tracks divergence from upstream `mvilanova/intervals-mcp-server`. See 
 
 _Nothing yet._
 
+## [1.4.0] — 2026-05-31 — Strava-source restriction (real root cause) + lean expansion
+
+### Root cause — corrected
+
+Live API probing (2026-05-31, read-only) overturned the v1.3.x "pre-normalization" theory. Every "draft" activity on the account is `source: STRAVA` and intervals.icu returns a 5-key stub:
+
+```json
+{ "id": "18728161934", "icu_athlete_id": "i141174",
+  "start_date_local": "2026-05-31T12:40:44", "source": "STRAVA",
+  "_note": "STRAVA activities are not available via the API" }
+```
+
+Derived endpoints return `{"status":422,"error":"Cannot read Strava activities via the API"}`. This is a **permanent Strava API-licensing restriction** at intervals.icu's API-serving layer — not a transient analysis state. No rename / reprocess / wait resolves it. The data only becomes API-readable if the same ride reaches intervals.icu via a **non-Strava** route (Garmin Connect, direct `.fit` upload). Non-Strava sources on the account (`WAHOO`, `OAUTH_CLIENT`, `UPLOAD` — 19/26 activities) are fully readable.
+
+Consequence: the planned `normalize_activity` auto-normalization tool was **not built** — there is nothing to normalize; the block is on API serving, not analysis. Building an auto-trigger would have written to the account on every read for zero data gain.
+
+### Changed
+
+- **`format_activity_summary` routes Strava-restricted activities first** to a compact, honest 3-line message (`_format_strava_restricted`): the real cause + the real remediation (change the data path), never a wall of `N/A`. The pre-normalization remediation (v1.3.x) is preserved as a fallback for genuine non-Strava empty stubs, and the substantive-data advisory-header path (v1.3.3) is preserved for non-Strava drafts that carry partial data.
+- **API error bodies are no longer discarded.** `_get_error_message` now extracts the `error`/`message` field from intervals.icu's JSON error body and appends it, so a 422 surfaces "Cannot read Strava activities via the API" instead of the generic canned "couldn't process the request". This makes every tool's 4xx/5xx output informative, including `get_activity_streams` / `_power_curve` / `_hr_curve` / `_power_vs_hr`.
+
+### Added (lean profile expansion: 31 → 40 tools, ~11.9k → ~13.9k tokens)
+
+Promoted to lean (each live-tested): `get_athlete_summary`, `list_athlete_power_curves`, `list_athlete_hr_curves`, `list_sport_settings`, `get_activity_power_vs_hr`, `get_activity_hr_load_model`, `get_activity_segments`, `get_activity_map`, `list_gear`, `get_weather_forecast`. (`get_athlete_mmp_model` was already in lean since v1.3.0.)
+
+Moved **out** of lean to full-only: `get_activity_full_report` — it internally pulls several of the now-lean per-activity tools, so its marginal value dropped and it's the single heaviest tool (~10k tokens/call). Escalate to full when you want everything at once.
+
+Net lean still ~74% smaller than full (135 tools / ~44k tokens).
+
+### Not built / deferred
+
+- **`normalize_activity`** — impossible (see Root cause). Dropped.
+- **`is_draft` re-base on `analyzed`/`icu_intervals`** — the live discriminator for the real problem is `source == "STRAVA"`, handled directly. Re-basing the generic predicate on `analyzed` risks false-positives on partial list payloads that omit the field; left as-is. Documented in the journal.
+- API-gap adds (custom-items, routes — both empty on the account; `fields=` selector) deferred.
+
+### Migration
+
+None required. Drop-in upgrade — download `intervals-icu-jan-1.4.0.mcpb`, double-click, restart. Existing config preserved. **The real Zwift fix is a data-path change on your side** (route Zwift to intervals.icu via Garmin Connect, not Strava), not an MCP update.
+
 ## [1.3.3] — 2026-05-31 — Draft-state passthrough + advisory
 
 ### Changed

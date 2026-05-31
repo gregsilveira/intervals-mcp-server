@@ -131,6 +131,52 @@ def _has_substantive_activity_data(activity: dict[str, Any]) -> bool:
     return False
 
 
+def _is_strava_restricted(activity: dict[str, Any]) -> bool:
+    """Return True if the activity is Strava-sourced and therefore withheld
+    by intervals.icu's API.
+
+    Confirmed live (2026-05-31): intervals.icu returns a 5-key stub for
+    Strava-sourced activities carrying
+    `{"source": "STRAVA", "_note": "STRAVA activities are not available via
+    the API"}`. This is a permanent Strava API-licensing restriction at
+    intervals.icu's API-serving layer — NOT a transient pre-normalization
+    state. No rename, reprocess, or wait resolves it; the data only becomes
+    API-readable if the same activity reaches intervals.icu via a non-Strava
+    route (Garmin Connect, direct .fit upload, etc.).
+    """
+    if not isinstance(activity, dict):
+        return False
+    if activity.get("source") == "STRAVA":
+        return True
+    note = activity.get("_note")
+    if isinstance(note, str) and "strava" in note.lower():
+        return True
+    return False
+
+
+def _format_strava_restricted(activity: dict[str, Any]) -> str:
+    """Compact, honest message for a Strava-sourced activity the API won't
+    serve. Renders the few fields the stub does carry plus the real cause
+    and the real remediation (change the data path, not rename/reprocess).
+
+    Kept short (no 12-line wall) so a list of Strava rows stays scannable.
+    """
+    raw_id = activity.get("id")
+    date = activity.get("start_date_local") or activity.get("start_date") or "unknown date"
+    lines = [f"[strava-restricted] {date} — id {raw_id}"]
+    lines.append(
+        "intervals.icu does not serve Strava-sourced activities via its API "
+        "(Strava licensing). This is not a pre-normalization state — rename/"
+        "reprocess will not help."
+    )
+    lines.append(
+        "To analyze this ride here, get it into intervals.icu via a non-Strava "
+        "route (Zwift -> Garmin Connect -> intervals.icu, or a direct .fit "
+        "upload). Non-Strava sources (Garmin/Wahoo/upload) are fully readable."
+    )
+    return "\n".join(lines)
+
+
 def _format_draft_advisory_header(activity: dict[str, Any]) -> str:
     """Single-line advisory prepended to a substantive draft activity's
     full render. Tells the caller the activity is in pre-normalization
@@ -198,16 +244,26 @@ def _format_draft_activity(activity: dict[str, Any]) -> str:
 def format_activity_summary(activity: dict[str, Any]) -> str:
     """Format an activity into a readable string.
 
-    Draft-state handling (v1.3.3, refined from v1.3.0/v1.3.1):
+    State handling (v1.4.0, refined from v1.3.x):
+    - Strava-restricted (source=STRAVA / `_note`) → compact honest message
+      via `_format_strava_restricted`. Checked FIRST because it's the most
+      specific and most common "no data" cause on real accounts, and unlike
+      pre-normalization it is permanent — the remediation is a data-path
+      change, not rename/reprocess.
     - Non-draft → render the full body unchanged.
     - Draft + substantive data present → prepend a single-line advisory and
       render the full body. The API returned data; don't withhold it.
-    - Draft + empty stub → return the remediation message via
-      `_format_draft_activity`. This is the only case where rendering the
-      full body would produce a wall of "N/A" / "Unknown" / "0".
+    - Draft + empty stub → remediation message via `_format_draft_activity`.
 
-    See `_has_substantive_activity_data` for the data-presence predicate.
+    See `_is_strava_restricted` and `_has_substantive_activity_data`.
     """
+    # Strava restriction is the most specific verdict — check it before the
+    # generic draft heuristic. A Strava stub also trips _is_draft_activity
+    # (bare-numeric id), but its cause and remediation are different, so it
+    # gets its own message.
+    if _is_strava_restricted(activity):
+        return _format_strava_restricted(activity)
+
     is_draft = _is_draft_activity(activity)
     if is_draft and not _has_substantive_activity_data(activity):
         return _format_draft_activity(activity)

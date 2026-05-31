@@ -328,3 +328,121 @@ def test_draft_message_keeps_save_path():
     ingest stalls still happen and the save remediation handles them."""
     out = _format_draft_activity({"id": 18303442074})
     assert "give the activity a name, and save" in out
+
+
+# ---------------------------------------------------------------------------
+# v1.3.3 — Passthrough + advisory for substantive draft activities
+# ---------------------------------------------------------------------------
+
+
+from intervals_mcp_server.utils.formatting import (  # noqa: E402
+    _format_draft_advisory_header,
+    _has_substantive_activity_data,
+)
+
+
+def test_has_substantive_activity_data_true_when_name_present():
+    """A non-empty name alone is enough — a draft with a typed name has
+    something worth rendering."""
+    assert _has_substantive_activity_data({"name": "Zwift Stock 20-min FTP"}) is True
+
+
+def test_has_substantive_activity_data_true_when_power_present():
+    """A positive average power means the API gave us real numbers, even
+    if other metadata fields are missing."""
+    assert _has_substantive_activity_data({"icu_average_watts": 247}) is True
+
+
+def test_has_substantive_activity_data_true_when_streams_listed():
+    """A populated stream_types list signals fetchable curves/streams even
+    pre-rename — counts as substantive."""
+    assert _has_substantive_activity_data(
+        {"stream_types": ["watts", "heartrate"]}
+    ) is True
+
+
+def test_has_substantive_activity_data_false_on_v1_3_0_empty_stub():
+    """The canonical v1.3.0 empty-stub shape (just an upstream int id, all
+    other fields null) is NOT substantive — must route to the remediation
+    message, not the advisory-header path."""
+    assert (
+        _has_substantive_activity_data(
+            {"id": 18303442074, "name": None, "type": None, "duration": 0}
+        )
+        is False
+    )
+
+
+def test_format_activity_summary_draft_with_data_renders_full_plus_advisory():
+    """v1.3.3: when the API returns substantive data on a draft (the case
+    the brief documents — Zwift-via-Strava upload reaches intervals.icu
+    with stream_types and average_watts intact), render the full body and
+    prepend an advisory header. The data must NOT be withheld."""
+    activity = {
+        "id": 18303442074,  # raw upstream id → draft signal
+        "name": "Zwift Stock 20-min FTP",
+        "type": "VirtualRide",
+        "source": "STRAVA",
+        "stream_types": ["watts", "heartrate", "cadence"],
+        "duration": 1200,
+        "distance": 12500,
+        "icu_average_watts": 247,
+        "average_heartrate": 168,
+    }
+    out = format_activity_summary(activity)
+    # Advisory header is present and identifies the source.
+    assert "advisory:" in out
+    assert "STRAVA" in out
+    assert "watts" in out
+    # And the full body is rendered — power data is not withheld.
+    assert "Power Data:" in out
+    assert "247" in out  # avg power preserved
+
+
+def test_format_activity_summary_draft_empty_keeps_remediation():
+    """v1.3.3 guard: the empty-stub path (no substantive data) must still
+    return the v1.3.0 remediation message, NOT a 60-line N/A wall with an
+    advisory header tacked on top."""
+    stub = {"id": 18303442074, "name": None, "type": None}
+    out = format_activity_summary(stub)
+    assert "Power Data:" not in out
+    assert "pre-normalization" in out
+    # The remediation path uses _format_draft_activity, not the advisory
+    # header — the literal "advisory:" prefix must not appear here.
+    assert "advisory:" not in out
+
+
+def test_format_draft_advisory_header_surfaces_source_and_streams():
+    """The advisory header must surface the fields a coach/model needs to
+    decide what to fetch next: source (lineage), whether analysis ran,
+    available stream types, and the web URL for the manual remediation."""
+    activity = {
+        "id": 18303442074,
+        "source": "STRAVA",
+        "icu_intervals": [],  # not yet analyzed
+        "stream_types": ["watts", "heartrate"],
+    }
+    out = _format_draft_advisory_header(activity)
+    assert "source=STRAVA" in out
+    assert "analyzed=False" in out
+    assert "watts" in out and "heartrate" in out
+    assert "https://intervals.icu/activities/18303442074" in out
+
+
+def test_format_activity_summary_non_draft_unchanged():
+    """v1.3.3 must not touch the non-draft path. Existing v1.3.0 test
+    (test_format_activity_summary_renders_normal_activity_unchanged)
+    covers this for normalized activities; this is the explicit guard
+    that the advisory header does NOT leak into non-draft output."""
+    activity = {
+        "name": "Normal Ride",
+        "id": "i142786468",
+        "type": "Ride",
+        "start_date_local": "2026-05-31T08:52:20",
+        "startTime": "2026-05-31T08:52:20Z",
+        "duration": 3600,
+        "icu_average_watts": 220,
+    }
+    out = format_activity_summary(activity)
+    assert "advisory:" not in out
+    assert "Power Data:" in out

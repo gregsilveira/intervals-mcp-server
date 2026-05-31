@@ -89,6 +89,79 @@ def _is_draft_activity(activity: dict[str, Any]) -> bool:
     return False
 
 
+def _has_substantive_activity_data(activity: dict[str, Any]) -> bool:
+    """Return True if the activity payload carries enough data to render.
+
+    Used in v1.3.3 to branch the draft path: if the API returned an empty
+    stub (the case the v1.3.0 detector was designed for), keep returning the
+    remediation message via `_format_draft_activity`. If the API returned
+    substantive fields despite the draft signal (e.g. a Zwift-via-Strava
+    upload that reached intervals.icu un-renamed but with stream data
+    intact), render the full body with an advisory header so the data is
+    not withheld.
+
+    Substantive means at least one of: a non-empty `name`, a non-empty
+    `type`, a positive `duration` / `elapsed_time` / `moving_time`, a
+    positive `distance`, a non-zero power scalar (`icu_average_watts`,
+    `average_watts`, `avgPower`, `icu_weighted_avg_watts`), a non-zero
+    `average_heartrate`, or a non-empty `stream_types` list.
+    """
+    if not isinstance(activity, dict):
+        return False
+
+    def _nonempty_str(value: Any) -> bool:
+        return isinstance(value, str) and value.strip() not in ("", "Unknown")
+
+    def _positive_num(value: Any) -> bool:
+        return isinstance(value, (int, float)) and value > 0 and not isinstance(value, bool)
+
+    if _nonempty_str(activity.get("name")) or _nonempty_str(activity.get("type")):
+        return True
+    for key in ("duration", "elapsed_time", "moving_time", "distance"):
+        if _positive_num(activity.get(key)):
+            return True
+    for key in ("icu_average_watts", "average_watts", "avgPower", "icu_weighted_avg_watts"):
+        if _positive_num(activity.get(key)):
+            return True
+    if _positive_num(activity.get("average_heartrate")):
+        return True
+    streams = activity.get("stream_types")
+    if isinstance(streams, list) and streams:
+        return True
+    return False
+
+
+def _format_draft_advisory_header(activity: dict[str, Any]) -> str:
+    """Single-line advisory prepended to a substantive draft activity's
+    full render. Tells the caller the activity is in pre-normalization
+    state without withholding the data the API did return.
+
+    Surfaces `source` (so the caller can see the Zwift / Strava lineage),
+    whether interval analysis has run (presence of `icu_intervals`), and
+    `stream_types` so the caller knows which streams are fetchable
+    pre-rename.
+    """
+    raw_id = activity.get("id")
+    source = activity.get("source") or "unknown"
+    intervals = activity.get("icu_intervals")
+    analyzed = bool(isinstance(intervals, list) and intervals)
+    streams = activity.get("stream_types")
+    streams_str = (
+        ", ".join(streams) if isinstance(streams, list) and streams else "none listed"
+    )
+    url = (
+        f" — open https://intervals.icu/activities/{raw_id} and save to force analysis."
+        if raw_id not in (None, "")
+        else ""
+    )
+    return (
+        "advisory: activity is pre-normalization on intervals.icu "
+        f"(source={source}, analyzed={analyzed}, streams={streams_str}). "
+        "Data below is what the API returned"
+        + url
+    )
+
+
 def _format_draft_activity(activity: dict[str, Any]) -> str:
     """Render a remediation message for a pre-normalization stub.
 
@@ -123,12 +196,25 @@ def _format_draft_activity(activity: dict[str, Any]) -> str:
 
 
 def format_activity_summary(activity: dict[str, Any]) -> str:
-    """Format an activity into a readable string."""
-    # Pre-normalization stub short-circuit (v1.3.0). See _is_draft_activity
-    # for the detection criteria. Returning early avoids rendering 60 lines
-    # of N/A on a stub payload — instead surfaces a remediation hint.
-    if _is_draft_activity(activity):
+    """Format an activity into a readable string.
+
+    Draft-state handling (v1.3.3, refined from v1.3.0/v1.3.1):
+    - Non-draft → render the full body unchanged.
+    - Draft + substantive data present → prepend a single-line advisory and
+      render the full body. The API returned data; don't withhold it.
+    - Draft + empty stub → return the remediation message via
+      `_format_draft_activity`. This is the only case where rendering the
+      full body would produce a wall of "N/A" / "Unknown" / "0".
+
+    See `_has_substantive_activity_data` for the data-presence predicate.
+    """
+    is_draft = _is_draft_activity(activity)
+    if is_draft and not _has_substantive_activity_data(activity):
         return _format_draft_activity(activity)
+
+    advisory_header = (
+        _format_draft_advisory_header(activity) + "\n\n" if is_draft else ""
+    )
 
     start_time = activity.get("startTime", activity.get("start_date", "Unknown"))
 
@@ -150,7 +236,7 @@ def format_activity_summary(activity: dict[str, Any]) -> str:
     if isinstance(feel, int):
         feel = f"{feel}/5"
 
-    return f"""
+    return advisory_header + f"""
 Activity: {activity.get("name", "Unnamed")}
 ID: {activity.get("id", "N/A")}
 Type: {activity.get("type", "Unknown")}

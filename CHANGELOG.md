@@ -6,6 +6,36 @@ This fork tracks divergence from upstream `mvilanova/intervals-mcp-server`. See 
 
 _Nothing yet._
 
+## [1.3.3] — 2026-05-31 — Draft-state passthrough + advisory
+
+### Changed
+
+- **`format_activity_summary` now passes data through instead of blocking** when a draft signal fires on an activity that nevertheless carries substantive fields. Previously (v1.3.0–v1.3.2), any `_is_draft_activity` hit short-circuited to the remediation message regardless of payload content. This withheld real data on the documented Zwift-via-Strava case where the API returns `stream_types`, `duration`, power, and HR despite the activity still holding its raw upstream `id`.
+
+  New v1.3.3 routing:
+  - Draft + substantive data present → render the full body and prepend a one-line `advisory: ...` header surfacing `source` (lineage), `analyzed` (presence of `icu_intervals`), the `stream_types` list, and the web URL for manual remediation.
+  - Draft + empty stub → return the v1.3.0/v1.3.1/v1.3.2 remediation message unchanged. (The empty-stub case the original detector was designed for.)
+  - Non-draft → render unchanged.
+
+  "Substantive" is defined by `_has_substantive_activity_data`: at least one of a non-empty `name`/`type`, a positive `duration`/`elapsed_time`/`moving_time`/`distance`, a positive average-power scalar (`icu_average_watts`/`average_watts`/`avgPower`/`icu_weighted_avg_watts`), a positive `average_heartrate`, or a non-empty `stream_types` list.
+
+### Why
+
+The draft signal was being used as a gate when it should have been used as an annotation. The intervals.icu API returns whatever data it has regardless of analysis state; suppressing the render produced a worse coach-facing experience than rendering the data with an explicit advisory. The empty-stub fallback is preserved because that case is real (some Zwift uploads do sit in upstream-ID limbo with no exposed fields) and the remediation message is still the right response for it.
+
+### Lean profile
+
+Unchanged at 31 tools / ~11.9 k tokens. The five per-activity analysis tools (`get_activity_streams`, `get_activity_interval_stats`, `get_activity_power_curve`, `find_best_efforts`, `get_activity_hr_curve`) have been in lean since v1.3.1; no promotion needed.
+
+### Migration
+
+None required. Drop-in upgrade — download `intervals-icu-jan-1.3.3.mcpb`, double-click, restart. Existing config preserved.
+
+### Not in v1.3.3
+
+- No wrapper-side response cache exists; no `force_refresh` parameter added. The stale-data symptom must originate in the MCP host or upstream timing, not in this wrapper.
+- No new tools, no profile shift, no new endpoints. Custom-items / routes / gear / segments / weather / athlete-power-curves / `fields=` selector are tracked for v1.4.
+
 ## [1.3.2] — 2026-04-29 — Sharpened 422 handling on `link_activity_to_event`
 
 ### Changed

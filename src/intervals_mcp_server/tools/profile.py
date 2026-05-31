@@ -3,14 +3,14 @@ Profile gate for the Intervals.icu MCP Server.
 
 Two profiles are supported via the `INTERVALS_PROFILE` env var:
 
-- `lean` (default) — exposes 26 high-value tools chosen to cover the four
+- `lean` (default) — exposes 40 high-value tools chosen to cover the four
   AI training-partner workflows (daily readiness, weekly planning, post-
   workout debrief, strength logging) plus Zwift workout export. Keeps the
-  MCP tool catalog small (~10 KB of schema) so it doesn't dominate Claude
+  MCP tool catalog small (~13.9 KB of schema) so it doesn't dominate Claude
   Desktop / DXT context windows.
 
-- `full` — exposes all 133 tools. Useful for power users who want SDK-
-  style coverage of the full intervals.icu API surface. Costs ~50 KB of
+- `full` — exposes all 135 tools. Useful for power users who want SDK-
+  style coverage of the full intervals.icu API surface. Costs ~44 KB of
   schema in the system prompt on every turn.
 
 The profile is applied AFTER all tool modules import. Each tool module

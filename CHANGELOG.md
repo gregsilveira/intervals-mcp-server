@@ -4,7 +4,23 @@ This fork tracks divergence from upstream `mvilanova/intervals-mcp-server`. See 
 
 ## [Unreleased]
 
-_Nothing yet._
+### Added — ATP season planning (merged from the Jochem-van-Appeldoorn fork)
+
+Grafts the `planning.py` module and its 5 tools on top of this fork's full-coverage
+base, giving "best of both worlds": jancrab's 135-tool API surface + Strava-restricted
+handling **plus** Jochem's Annual Training Plan engine.
+
+- **5 new planning tools:** `create_atp_plan` (auto-detects needed phases from current
+  CTL and posts them as calendar phase notes back from the A-race), `get_atp_plan`,
+  `get_atp_week_note`, `get_planning_context` (one-shot CTL/ATL/TSB + phase + planned
+  workouts + upcoming races snapshot), `add_race_event` (A/B/C priority).
+- **All 5 added to the `lean` profile** — they serve the weekly-planning lean workflow.
+  Lean grows 40 → 45 tools; full grows 135 → 140.
+- **`add_or_update_event` gains `strength_training`** (also from Jochem): when
+  `workout_type="WeightTraining"`, exercise blocks are auto-formatted as Intervals.icu
+  bullet-point descriptions via the new `format_strength_description()` helper.
+- Tests: `tests/test_planning.py` (planning engine) and `tests/test_events.py`
+  (strength formatting) merged in. Full suite: 267 passing, ruff clean.
 
 ## [1.4.1] — 2026-05-31 — Strava-restricted on derived endpoints + obsolete-wording purge
 

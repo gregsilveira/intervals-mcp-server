@@ -117,6 +117,18 @@ LEAN_TOOLS: frozenset[str] = frozenset(
         "list_workouts",
         "get_workout",
         "download_workout",             # Zwift .zwo / .mrc / .erg / .fit export
+        # --- ATP season planning (merged from Jochem-van-Appeldoorn fork) -
+        # Directly serves the "weekly-planning" lean workflow: build a
+        # periodized Annual Training Plan working back from the A-race,
+        # read the phase note covering a week, and pull a one-shot planning
+        # snapshot (CTL/ATL/TSB + phase + planned workouts + races). Small
+        # schemas; high value for coaching. Race creation kept in lean so
+        # the plan and its A/B/C races live behind the same profile.
+        "create_atp_plan",
+        "get_atp_plan",
+        "get_atp_week_note",
+        "get_planning_context",
+        "add_race_event",
     }
 )
 

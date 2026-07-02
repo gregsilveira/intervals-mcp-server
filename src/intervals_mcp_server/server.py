@@ -234,6 +234,13 @@ from intervals_mcp_server.tools.file_ops import (  # pylint: disable=wrong-impor
 from intervals_mcp_server.tools.aggregators import (  # pylint: disable=wrong-import-position  # noqa: E402
     get_activity_full_report,
 )
+from intervals_mcp_server.tools.planning import (  # pylint: disable=wrong-import-position  # noqa: E402
+    add_race_event,
+    create_atp_plan,
+    get_atp_plan,
+    get_atp_week_note,
+    get_planning_context,
+)
 from intervals_mcp_server.tools.profile import apply_profile  # pylint: disable=wrong-import-position  # noqa: E402
 
 # Apply profile gate AFTER all tool modules have registered their tools.
@@ -391,6 +398,12 @@ __all__ = [
     "download_workout_for_athlete",
     # aggregators (lean-profile fat-tools)
     "get_activity_full_report",
+    # planning (ATP season planning — merged from Jochem-van-Appeldoorn fork)
+    "create_atp_plan",
+    "get_atp_plan",
+    "get_atp_week_note",
+    "get_planning_context",
+    "add_race_event",
 ]
 
 

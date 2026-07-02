@@ -164,6 +164,13 @@ from intervals_mcp_server.tools.file_ops import (  # noqa: F401
 from intervals_mcp_server.tools.aggregators import (  # noqa: F401
     get_activity_full_report,
 )
+from intervals_mcp_server.tools.planning import (  # noqa: F401
+    add_race_event,
+    create_atp_plan,
+    get_atp_plan,
+    get_atp_week_note,
+    get_planning_context,
+)
 
 
 def register_tools(mcp_instance: FastMCP) -> None:
@@ -323,4 +330,10 @@ __all__ = [
     "download_workout_for_athlete",
     # aggregators (lean-profile fat-tools)
     "get_activity_full_report",
+    # planning (ATP season planning — merged from Jochem-van-Appeldoorn fork)
+    "create_atp_plan",
+    "get_atp_plan",
+    "get_atp_week_note",
+    "get_planning_context",
+    "add_race_event",
 ]

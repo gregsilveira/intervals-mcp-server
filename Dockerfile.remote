@@ -1,0 +1,31 @@
+# Remote (streamable-http) image for hosting the Intervals.icu MCP as a Claude custom connector.
+# The default Dockerfile keeps the stdio path for the DXT/Desktop bundle; this one serves HTTP.
+FROM python:3.12-slim
+
+WORKDIR /app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends build-essential curl \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN pip install --no-cache-dir hatchling
+
+COPY pyproject.toml pyproject.toml
+COPY src src
+COPY README.md README.md
+COPY .env.example .env.example
+
+RUN pip install --no-cache-dir .
+
+# Serve MCP over Streamable HTTP, bound to all interfaces.
+# API_KEY / ATHLETE_ID must be injected as env by the host (NOT baked into the image).
+ENV MCP_TRANSPORT=streamable-http \
+    FASTMCP_HOST=0.0.0.0 \
+    FASTMCP_PORT=8000
+
+# Most PaaS (Fly/Railway/Render) inject $PORT; map it onto FASTMCP_PORT, default 8000.
+COPY docker-entrypoint.sh /docker-entrypoint.sh
+RUN chmod +x /docker-entrypoint.sh
+
+EXPOSE 8000
+ENTRYPOINT ["/docker-entrypoint.sh"]

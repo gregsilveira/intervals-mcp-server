@@ -1,22 +1,32 @@
 """
 Profile gate for the Intervals.icu MCP Server.
 
-Two profiles are supported via the `INTERVALS_PROFILE` env var:
+Three profiles are supported via the `INTERVALS_PROFILE` env var:
 
-- `lean` (default) — exposes 40 high-value tools chosen to cover the four
+- `lean` (default) — exposes 45 high-value tools chosen to cover the four
   AI training-partner workflows (daily readiness, weekly planning, post-
   workout debrief, strength logging) plus Zwift workout export. Keeps the
-  MCP tool catalog small (~13.9 KB of schema) so it doesn't dominate Claude
-  Desktop / DXT context windows.
+  MCP tool catalog small so it doesn't dominate Claude Desktop / DXT
+  context windows. Selected tool-by-tool (see ``LEAN_TOOLS``).
 
-- `full` — exposes all 135 tools. Useful for power users who want SDK-
-  style coverage of the full intervals.icu API surface. Costs ~44 KB of
-  schema in the system prompt on every turn.
+- `analysis` — exposes 110 tools: the full API surface minus three whole
+  domains that are noise for the EnduranceIQ connector — ``custom_items``,
+  ``library`` (bulk workout templates/folders), and ``file_ops`` (FIT/GPX
+  up/download that writes to the *server's* filesystem; 1 Hz analysis goes
+  via the Edge ``intervals-proxy``, not the MCP). Cut **by module**, not
+  tool-by-tool: reversible (re-open a domain = 1 line) and lower-risk than
+  hand-picking. See ADR-007 / issue #292. This is what the remote connector
+  runs.
+
+- `full` — exposes all 140 tools. Useful for power users who want SDK-style
+  coverage of the full intervals.icu API surface.
 
 The profile is applied AFTER all tool modules import. Each tool module
 unconditionally calls `@mcp.tool()` at import time; we then walk the
-FastMCP tool registry and remove tools that aren't in the lean set.
-This keeps the per-module code uncluttered with profile checks.
+FastMCP tool registry and remove tools that aren't in the active profile.
+`lean` filters by an explicit tool allowlist; `analysis` filters by the
+defining module of each tool (``tool.fn.__module__``). This keeps the
+per-module code uncluttered with profile checks.
 """
 
 from __future__ import annotations
@@ -133,6 +143,42 @@ LEAN_TOOLS: frozenset[str] = frozenset(
 )
 
 
+# ---------------------------------------------------------------------------
+# Analysis profile — module denylist
+# ---------------------------------------------------------------------------
+#
+# The `analysis` profile keeps the whole API surface EXCEPT these three tool
+# domains. Cut by module (not tool-by-tool) so it's reversible in one line and
+# so new tools added to a kept module are exposed automatically.
+#
+#   - custom_items — never used by the connector.
+#   - library      — bulk workout templates / folders; out of the analysis loop.
+#   - file_ops     — FIT/GPX up/download that writes to the *server's* FS
+#                    (useless to an MCP client); 1 Hz analysis goes via the
+#                    Edge `intervals-proxy`, not the MCP.
+#
+# See ADR-007 and issue #292. To re-open a domain for a future engine, delete
+# its entry here.
+ANALYSIS_CUT_MODULES: frozenset[str] = frozenset(
+    {
+        "custom_items",
+        "library",
+        "file_ops",
+    }
+)
+
+
+def _tool_module(tool: object) -> str:
+    """Return the short module name a tool was defined in.
+
+    Tools are registered via ``@mcp.tool()`` on the function that defines them,
+    so ``tool.fn.__module__`` is the defining module — e.g.
+    ``intervals_mcp_server.tools.library`` → ``library``.
+    """
+    module = getattr(getattr(tool, "fn", None), "__module__", "") or ""
+    return module.rsplit(".", 1)[-1]
+
+
 def apply_profile(mcp: FastMCP, profile: str) -> tuple[int, int]:
     """
     Filter the registered MCP tools according to the active profile.
@@ -140,29 +186,48 @@ def apply_profile(mcp: FastMCP, profile: str) -> tuple[int, int]:
     Args:
         mcp: The shared FastMCP instance with all tools already registered
             via their @mcp.tool() decorators.
-        profile: Either "lean" or "full". Anything other than "full" is
+        profile: One of "lean", "analysis", or "full". Anything unrecognized is
             treated as lean by `config.load_config`.
 
     Returns:
         (kept, removed) — counts for logging / tests.
     """
+    tools = mcp._tool_manager._tools  # pylint: disable=protected-access
+
     if profile == "full":
-        kept = len(mcp._tool_manager._tools)  # pylint: disable=protected-access
+        kept = len(tools)
         logger.info("Profile=full — exposing all %d tools", kept)
         return kept, 0
 
+    if profile == "analysis":
+        removed = 0
+        for name, tool in list(tools.items()):
+            if _tool_module(tool) in ANALYSIS_CUT_MODULES:
+                mcp._tool_manager.remove_tool(name)  # pylint: disable=protected-access
+                removed += 1
+        kept = len(tools)
+        logger.info(
+            "Profile=analysis — exposing %d/%d tools (removed %d from modules %s). "
+            "Set INTERVALS_PROFILE=full to expose all tools.",
+            kept,
+            kept + removed,
+            removed,
+            sorted(ANALYSIS_CUT_MODULES),
+        )
+        return kept, removed
+
     # Lean path: remove anything not in LEAN_TOOLS.
-    all_names = list(mcp._tool_manager._tools.keys())  # pylint: disable=protected-access
+    all_names = list(tools.keys())
     removed = 0
     for name in all_names:
         if name not in LEAN_TOOLS:
             mcp._tool_manager.remove_tool(name)  # pylint: disable=protected-access
             removed += 1
-    kept = len(mcp._tool_manager._tools)  # pylint: disable=protected-access
+    kept = len(tools)
 
     logger.info(
         "Profile=lean — exposing %d/%d tools (removed %d). "
-        "Set INTERVALS_PROFILE=full to expose all tools.",
+        "Set INTERVALS_PROFILE=analysis or =full to expose more tools.",
         kept,
         kept + removed,
         removed,
@@ -171,7 +236,7 @@ def apply_profile(mcp: FastMCP, profile: str) -> tuple[int, int]:
     # Sanity check: every name in LEAN_TOOLS should have actually been
     # registered by some module. If not, a typo in LEAN_TOOLS or a missing
     # module import will silently drop tools — surface that as a warning.
-    actual_names = set(mcp._tool_manager._tools.keys())  # pylint: disable=protected-access
+    actual_names = set(tools.keys())
     missing = LEAN_TOOLS - actual_names
     if missing:
         logger.warning(

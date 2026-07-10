@@ -244,7 +244,8 @@ from intervals_mcp_server.tools.planning import (  # pylint: disable=wrong-impor
 from intervals_mcp_server.tools.profile import apply_profile  # pylint: disable=wrong-import-position  # noqa: E402
 
 # Apply profile gate AFTER all tool modules have registered their tools.
-# Lean (default) keeps ~26 tools; full keeps all 133. See tools/profile.py.
+# lean (default) keeps 45 tools; analysis keeps 110; full keeps all 140.
+# See tools/profile.py.
 apply_profile(mcp, config.profile)
 
 # Re-export make_intervals_request and httpx_client for backward compatibility

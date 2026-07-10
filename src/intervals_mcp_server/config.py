@@ -27,7 +27,7 @@ class Config:
     athlete_id: str
     intervals_api_base_url: str
     user_agent: str
-    profile: str  # "lean" (default, ~26 tools) or "full" (all 133 tools)
+    profile: str  # "lean" (default, 45 tools), "analysis" (110), or "full" (all 140)
 
 
 _config_instance: Config | None = None  # pylint: disable=invalid-name
@@ -48,14 +48,20 @@ def load_config() -> Config:
     intervals_api_base_url = os.getenv("INTERVALS_API_BASE_URL", "https://intervals.icu/api/v1")
     user_agent = "intervalsicu-mcp-server/1.0"
 
-    # Profile gate: "lean" (default) exposes ~26 high-value tools to keep
-    # context cost low for Claude Desktop / DXT installs. "full" exposes all
-    # 133 tools — useful for power users / SDK-style scripting where the
-    # context-cost tradeoff is acceptable. Any value other than "full" is
-    # treated as "lean" so misspellings don't accidentally expose 5x the
-    # surface area.
+    # Profile gate (see tools/profile.py). Three profiles:
+    #   - "lean" (default): 45 high-value tools — keeps context cost low for
+    #     Claude Desktop / DXT installs.
+    #   - "analysis": 110 tools — full API surface minus the three domains
+    #     that are noise for the EnduranceIQ connector (custom_items, library,
+    #     file_ops). Cut by module; see ADR-007 (issue #292).
+    #   - "full": all 140 tools — SDK-style coverage of the whole API.
+    # Any value other than "full"/"analysis" is treated as "lean" so
+    # misspellings don't accidentally expose a larger surface area.
     profile_raw = os.getenv("INTERVALS_PROFILE", "lean").strip().lower()
-    profile = "full" if profile_raw == "full" else "lean"
+    if profile_raw in ("full", "analysis"):
+        profile = profile_raw
+    else:
+        profile = "lean"
 
     # Validate athlete_id if provided (empty string is allowed)
     if athlete_id:
